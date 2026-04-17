@@ -14,6 +14,8 @@ Most of the tooling is done. There are some finishing touches for demo and zmovi
 
 # Usage
 
+Requires usage of Python 3.14.
+
 Most of the scripts will have command-line based arguments. I do have some directories still hard coded. 
 
 ## Directories and Flow
