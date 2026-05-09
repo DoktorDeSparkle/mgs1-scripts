@@ -293,8 +293,12 @@ def extractEntryVideo(originalData: bytes, entryIndex: int, outputPath: str) -> 
     end = offsets[entryIndex + 1]
     num_blocks = (end - start) // ZMOVIE_BLOCK
 
+    # Subtitle blocks at the start are not video. chunk_count at 0x0E says
+    # how many. Most entries have 1; zmovie-02 has 2 (subtitle overflow).
+    chunk_count = struct.unpack('<H', originalData[start + 0x0E : start + 0x10])[0] or 1
+
     with open(outputPath, 'wb') as out:
-        for blk in range(1, num_blocks):  # skip block 0 (subtitle header)
+        for blk in range(chunk_count, num_blocks):  # skip subtitle header block(s)
             off = start + blk * ZMOVIE_BLOCK
             subheader = originalData[off:off + _XA_SUBHEADER_SIZE]
             payload = originalData[off + _XA_SUBHEADER_SIZE:off + ZMOVIE_BLOCK]
