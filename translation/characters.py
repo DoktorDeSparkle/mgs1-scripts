@@ -14,7 +14,7 @@ radioChar = { # 0x?0??
 	'20': " ",
 	'21': "！",
 	'22': "\"",
-	'23': "#",
+	'23': "＃",  # U+FF03 fullwidth — opens/closes furigana markup, round-trips as 0x80 0x23
 	'24': "$",
 	'25': "%",
 	'26': "&",
@@ -25,7 +25,7 @@ radioChar = { # 0x?0??
 	'2b': "+",
 	'2c': ",",
 	'2d': "-",
-	'2e': ".",
+	'2e': "．",  # U+FF0E fullwidth period — distinct from kanji 0x9003 (。); round-trips as 0x80 0x2e
 	'2f': "/",
 	'30': "０",
 	'31': "１",
@@ -839,6 +839,13 @@ kanji = {
 }
 
 revKanji = dict(zip(kanji.values(), kanji.keys()))
+# Disambiguate glyphs that have two codes in the kanji table. The 0x9a??
+# entries are never used by jpn-d1 RADIO.DAT; the 0x90?? form is canonical
+# in the corpus, so the reverse map must prefer it.
+revKanji['持'] = '9039'
+revKanji['味'] = '9045'
+revKanji['音'] = '90f3'
+revKanji['後'] = '90fc'
 
 punctuation = { # 0xd0
 	'02': "、",
