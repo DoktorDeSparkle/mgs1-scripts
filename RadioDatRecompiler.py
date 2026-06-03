@@ -554,6 +554,7 @@ def main(args=None):
     global INTEGRAL
     global PAD
     global ROUND_TRIP
+    global currentCallDict
 
 
     if args == None:

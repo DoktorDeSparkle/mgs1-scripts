@@ -838,14 +838,12 @@ kanji = {
     '9a40': "済",
 }
 
-revKanji = dict(zip(kanji.values(), kanji.keys()))
-# Disambiguate glyphs that have two codes in the kanji table. The 0x9a??
-# entries are never used by jpn-d1 RADIO.DAT; the 0x90?? form is canonical
-# in the corpus, so the reverse map must prefer it.
-revKanji['持'] = '9039'
-revKanji['味'] = '9045'
-revKanji['音'] = '90f3'
-revKanji['後'] = '90fc'
+# Build the reverse map preferring the *lower-numbered* code when a glyph
+# has multiple entries (e.g. 持, 味, 音, 後 each have a primary 0x90?? form
+# and a vestigial 0x9a?? form). Iterating sorted-descending and assigning
+# leaves the lowest key as the final value, which matches the corpus-used
+# form across every disc we've checked without needing per-disc overrides.
+revKanji = {kanji[k]: k for k in sorted(kanji.keys(), reverse=True)}
 
 punctuation = { # 0xd0
 	'02': "、",

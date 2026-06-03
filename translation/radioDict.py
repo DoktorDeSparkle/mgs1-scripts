@@ -246,11 +246,11 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 		if debug:
 			print(f'Character {character} was not found in custom call dict. Adding...')
 		index = int(len(callDict) / 72)
-		if index > 508:
-			index -= 508
+		if index > 510:
+			index -= 510
 			newBytestring += b'\x98'
-		elif index > 254:
-			index -= 254
+		elif index > 255:
+			index -= 255
 			newBytestring += b'\x97'
 		else:
 			newBytestring += b'\x96'
@@ -295,13 +295,19 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 			newBytestring += character.encode('ascii')
 		elif _in_existing_slot:
 			# Char already has a tile in this call's custom-char dict —
-			# emit the escape pointing at that slot.
+			# emit the escape pointing at that slot. The escape prefix
+			# selects a 256-entry block:
+			#   0x96 N -> dict index N         (N = 1..255)
+			#   0x97 N -> dict index N + 255   (N = 1..255; 0x97 00 is the
+			#                                   alias of 0x96 FF and is
+			#                                   reserved/unused)
+			#   0x98 N -> dict index N + 510   (likewise)
 			index = int(callDict.find(_cust_hex) / 72) + 1
-			if index > 508:
-				index -= 508
+			if index > 510:
+				index -= 510
 				newBytestring += b'\x98'
-			elif index > 254:
-				index -= 254
+			elif index > 255:
+				index -= 255
 				newBytestring += b'\x97'
 			else:
 				newBytestring += b'\x96'
@@ -336,11 +342,11 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 				if debug:
 					print(f'Character {character} was not found in custom call dict. Adding...')
 				index = int(len(callDict) / 72) + 1
-				if index > 508:
-					index -= 508
+				if index > 510:
+					index -= 510
 					newBytestring += b'\x98'
-				elif index > 254:
-					index -= 254
+				elif index > 255:
+					index -= 255
 					newBytestring += b'\x97'
 				else:
 					newBytestring += b'\x96'
