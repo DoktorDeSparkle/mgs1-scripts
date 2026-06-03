@@ -13,7 +13,7 @@ All of the revX dicts are for re-encoding. It was easier than doing a find each 
 radioChar = { # 0x?0??
 	'20': " ",
 	'21': "！",
-	'22': "\"",
+	'22': "＂",  # U+FF02 fullwidth — distinguishes 0x80 22 quotation marker (USA / Integral English) from raw single-byte 0x22 ASCII
 	'23': "＃",  # U+FF03 fullwidth — opens/closes furigana markup, round-trips as 0x80 0x23
 	'24': "$",
 	'25': "%",
@@ -24,7 +24,7 @@ radioChar = { # 0x?0??
 	'2a': "*",
 	'2b': "+",
 	'2c': ",",
-	'2d': "-",
+	'2d': "－",  # U+FF0D fullwidth hyphen-minus — distinguishes 0x80 2d (used in Integral) from raw ASCII 0x2d
 	'2e': "．",  # U+FF0E fullwidth period — distinct from kanji 0x9003 (。); round-trips as 0x80 0x2e
 	'2f': "/",
 	'30': "０",
