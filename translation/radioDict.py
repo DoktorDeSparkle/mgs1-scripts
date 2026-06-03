@@ -152,60 +152,77 @@ def makeCallDictionary(offset, graphicsBytes: bytes): # remove type on offset, m
 
 	return callDictionary
 
-def translateJapaneseHex(bytestring: bytes, callDict: dict[str, str] = None ) -> str: # Needs fixins, maybe move to separate file?
+# Kinsoku flag sentinels emitted into the decoded text so the encoder can
+# reconstruct the original byte-level flag bits on the high byte of a 2-byte
+# code:  0x2000 = BACK_KINSOKU ("don't end a line here"),
+#        0x4000 = TOP_KINSOKU  ("don't start a line here").
+SENT_BK = '‹BK›'  # ‹BK›
+SENT_TK = '‹TK›'  # ‹TK›
+KINSOKU_SENTINELS = {SENT_BK: 0x2000, SENT_TK: 0x4000}
+
+def translateJapaneseHex(bytestring: bytes, callDict: dict[str, str] = None ) -> str:
 	i = 0
 	messageString = ''
 	customCharacter = False
 	while i < len(bytestring) - 1:
-		# print(f'i is {i}\n') # For debugging
-		if bytestring[i].to_bytes() in ( b'\x96' , b'\x97' , b'\x98', b'\x9c'): # TEMP CHANGE, might last. TODO: Review
+		b0 = bytestring[i]
+		# Custom-char escape: 2 bytes, second is index into per-call dict.
+		# Flag bits are not meaningful here (these aren't font glyph codes).
+		if b0 in (0x96, 0x97, 0x98, 0x9c):
 			customCharNum = int(bytestring[i + 1])
-			if bytestring[i].to_bytes() ==  b'\x97':
-				customCharNum += 255 
-			elif bytestring[i].to_bytes() ==  b'\x98':
+			if b0 == 0x97:
+				customCharNum += 255
+			elif b0 == 0x98:
 				customCharNum += 510
-			result = callDict.get(customCharNum)
+			result = callDict.get(customCharNum) if callDict else None
 			if result is not None:
 				messageString += result
 			else:
-				# print(f'Cound not translate {bytestring[i + 1]}')
 				messageString += f'[{bytestring[i:i+2].hex()}]'
 				customCharacter = True
 			i += 2
-		else:
-			# print(f'i = {i}, category: {bytestring[i].to_bytes()} byte = {bytestring[i+1].to_bytes().hex()}')
-			if bytestring[i] in [0x1f, 0x12]:
-				charcheck = bytestring[i:i+2].hex()
-				messageString += characters.spanishChars.get(charcheck)
-			elif bytestring[i] < 0x80:
-				messageString += chr(bytestring[i])
-				i -= 1
-			elif bytestring[i:i+4] == b'\x5c\x72\x5c\x6e':
-				messageString += '\\r\\n'
-				i += 2
-			elif bytestring[i] in (0x80, 0xC0):
-				messageString += characters.radioChar.get(bytestring[i+1].to_bytes().hex())
-			elif bytestring[i] in (0x81, 0xC1):
-				messageString += characters.hiragana.get(bytestring[i+1].to_bytes().hex())
-			elif bytestring[i] in (0x82, 0xC2):
-				messageString += characters.katakana.get(bytestring[i+1].to_bytes().hex())
-			elif bytestring[i] in (0xd0, 0xb0):
-				messageString += characters.punctuation.get(bytestring[i+1].to_bytes().hex())
-			else:
-				result = characters.kanji.get(bytestring[i:i+2].hex())
-				if result is not None:
-					messageString += result
-				else:
-					# print(f'Unable to translate Japanese byte code {bytestring[i : i + 2].hex()}!!!\n')
-					# missingChars.write(f'[{bytestring[i : i + 2].hex()}]\n')
-					messageString += f'[{bytestring[i : i + 2].hex()}]'
-					customCharacter = True
+			continue
+		# Spanish 2-byte prefixes (translation insertion codes)
+		if b0 in (0x1f, 0x12):
+			charcheck = bytestring[i:i+2].hex()
+			messageString += characters.spanishChars.get(charcheck, f'[{charcheck}]')
 			i += 2
-	
-	# Disabled for now
-	# if customCharacter == True:
-	# 	context.write(f'{messageString}\n')
-		
+			continue
+		# Literal "\r\n" escape sequence (4 source bytes, 4 char output)
+		if bytestring[i:i+4] == b'\x5c\x72\x5c\x6e':
+			messageString += '\\r\\n'
+			i += 4
+			continue
+		# 1-byte ASCII (internally lifted by the font to 0x8000|byte)
+		if b0 < 0x80:
+			messageString += chr(b0)
+			i += 1
+			continue
+		# 2-byte code: split out kinsoku flags from the canonical glyph code
+		raw   = (b0 << 8) | bytestring[i+1]
+		flags = raw & 0x6000
+		glyph = raw & 0x9FFF
+		hi = glyph >> 8
+		lo_hex = f'{glyph & 0xFF:02x}'
+		if hi == 0x80:
+			ch = characters.radioChar.get(lo_hex)
+		elif hi == 0x81:
+			ch = characters.hiragana.get(lo_hex)
+		elif hi == 0x82:
+			ch = characters.katakana.get(lo_hex)
+		else:
+			ch = characters.kanji.get(f'{glyph:04x}')
+		if ch is None:
+			messageString += f'[{raw:04x}]'
+			customCharacter = True
+		else:
+			messageString += ch
+			if flags & 0x2000:
+				messageString += SENT_BK
+			if flags & 0x4000:
+				messageString += SENT_TK
+		i += 2
+
 	return messageString
 
 def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOverrides: dict = None) -> tuple[bytes, str]: # Needs fixins, maybe move to separate file?
@@ -216,6 +233,10 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 	If provided, characters found in this dict are encoded using the
 	override bytes instead of the default characters.py lookups.
 	Falls back to the module-level tblEncoderOverrides if not passed.
+
+	Kinsoku sentinels (‹BK› / ‹TK›) trailing a character set the
+	BACK_KINSOKU / TOP_KINSOKU bits on the high byte of that character's
+	2-byte code so round-tripped flags survive re-encoding.
 	"""
 	overrides = tblOverrides if tblOverrides is not None else tblEncoderOverrides
 	unknownChars = True # For now we still dont know some characters
@@ -234,15 +255,28 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 		else:
 			newBytestring += b'\x96'
 		callDict += customHex
-	
+
 	# THIS IS ONLY UNTIL WE IDENTIFY ALL MISSING CHARACTERS!
 	if unknownChars:
 		if "[" in dialogue:
 			# print(f'Replace DIALOGUE: {dialogue}') # Used for debugging what dialogue was looking like
 			dialogue = re.sub(r"\[[0-9A-Fa-f]{72}\]", "?", dialogue)
 			# print(f'New Dialogue: {dialogue}')
-	
-	for character in dialogue:
+
+	i = 0
+	while i < len(dialogue):
+		# Drop any orphan kinsoku sentinel (no preceding char to attach to)
+		if dialogue[i:i+4] in KINSOKU_SENTINELS:
+			i += 4
+			continue
+		character = dialogue[i]
+		i += 1
+		# Collect any kinsoku sentinels trailing this character
+		mask = 0
+		while dialogue[i:i+4] in KINSOKU_SENTINELS:
+			mask |= KINSOKU_SENTINELS[dialogue[i:i+4]]
+			i += 4
+		prev_len = len(newBytestring)
 		if ord(character) == 65294:
 				newBytestring += b'\x80\x2e'
 		elif overrides and character in overrides:
@@ -259,10 +293,12 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 			newBytestring += b'\x81' + bytes.fromhex(characters.revHiragana.get(character))
 		elif character in characters.revKatakana:
 			newBytestring += b'\x82' + bytes.fromhex(characters.revKatakana.get(character))
-		elif character in characters.revPunct:
-			newBytestring += b'\xd0' + bytes.fromhex(characters.revPunct.get(character))
 		elif character in characters.revKanji:
 			newBytestring += bytes.fromhex(characters.revKanji.get(character))
+		elif character in characters.revPunct:
+			# Punctuation (0x90?? glyph slots) — emit unflagged so kinsoku
+			# sentinels can apply the TOP/BACK bits via the mask path below.
+			newBytestring += b'\x90' + bytes.fromhex(characters.revPunct.get(character))
 		elif character in characters.revCustomChar:
 			# This means we add it to the custom dict. 
 			customHex = characters.revCustomChar.get(character)
@@ -301,7 +337,13 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 					newBytestring += b'\x96'
 				callDict += customHex
 				newBytestring += index.to_bytes()
-	
+		# Apply trailing kinsoku flags to the high byte of the 2-byte code
+		# emitted for this character (no-op for 1-byte ASCII output).
+		if mask and len(newBytestring) - prev_len >= 2:
+			tail = bytearray(newBytestring)
+			tail[prev_len] |= (mask >> 8)  # 0x2000->0x20, 0x4000->0x40
+			newBytestring = bytes(tail)
+
 	return newBytestring, callDict
 
 """
