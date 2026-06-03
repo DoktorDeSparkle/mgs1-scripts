@@ -277,6 +277,14 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 			mask |= KINSOKU_SENTINELS[dialogue[i:i+4]]
 			i += 4
 		prev_len = len(newBytestring)
+		# Pre-compute custom-char hex once so we can route by "is this char
+		# already present in the per-call custom-char dict?" before the
+		# global tables. That priority match the original encoder: any
+		# character whose tile is already in the call's dict gets emitted
+		# as a custom-char escape; everything else uses the global tables.
+		_cust_hex = characters.revCustomChar.get(character) if character in characters.revCustomChar else None
+		_in_existing_slot = bool(callDict) and _cust_hex is not None and _cust_hex in callDict
+
 		if ord(character) == 65294:
 				newBytestring += b'\x80\x2e'
 		elif overrides and character in overrides:
@@ -285,8 +293,19 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 			if useDoubleLength:
 				newBytestring += b'\x80'
 			newBytestring += character.encode('ascii')
-		elif character in characters.revSpanish:
-			newBytestring += bytes.fromhex(characters.revSpanish.get(character))
+		elif _in_existing_slot:
+			# Char already has a tile in this call's custom-char dict —
+			# emit the escape pointing at that slot.
+			index = int(callDict.find(_cust_hex) / 72) + 1
+			if index > 508:
+				index -= 508
+				newBytestring += b'\x98'
+			elif index > 254:
+				index -= 254
+				newBytestring += b'\x97'
+			else:
+				newBytestring += b'\x96'
+			newBytestring += index.to_bytes()
 		elif character in characters.revRadio:
 			newBytestring += b'\x80' + bytes.fromhex(characters.revRadio.get(character))
 		elif character in characters.revHiragana:
@@ -299,31 +318,21 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 			# Punctuation (0x90?? glyph slots) — emit unflagged so kinsoku
 			# sentinels can apply the TOP/BACK bits via the mask path below.
 			newBytestring += b'\x90' + bytes.fromhex(characters.revPunct.get(character))
-		elif character in characters.revCustomChar:
-			# This means we add it to the custom dict. 
-			customHex = characters.revCustomChar.get(character)
-			if customHex == None:
-				print(f'ERROR! Unable to encode character {character}! We found no match in logic.')
-				continue
-			if callDict == None:
-				# addCharToDict(customHex)
+		elif character in characters.revSpanish:
+			# Translation-insertion code (e.g. 0x1F4A for `…`). Lower
+			# priority than the global Japanese tables so a Japanese
+			# corpus character that *also* has a Spanish form rounds
+			# back to its native Japanese encoding.
+			newBytestring += bytes.fromhex(characters.revSpanish.get(character))
+		elif _cust_hex is not None:
+			# Char has a tile but it isn't in this call's dict yet —
+			# allocate a new slot at the end.
+			if not callDict:
 				if debug:
 					print(f'Character {character} was not found in custom call dict. Adding...')
 				newBytestring += bytes.fromhex('9601')
-				callDict = customHex
-			elif customHex in callDict:
-				index = int(callDict.find(customHex) / 72) + 1
-				if index > 508:
-					index -= 508
-					newBytestring += b'\x98'
-				elif index > 254:
-					index -= 254
-					newBytestring += b'\x97'
-				else:
-					newBytestring += b'\x96'
-				newBytestring += index.to_bytes()
+				callDict = _cust_hex
 			else:
-				# addCharToDict(customHex)
 				if debug:
 					print(f'Character {character} was not found in custom call dict. Adding...')
 				index = int(len(callDict) / 72) + 1
@@ -335,8 +344,12 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 					newBytestring += b'\x97'
 				else:
 					newBytestring += b'\x96'
-				callDict += customHex
+				callDict += _cust_hex
 				newBytestring += index.to_bytes()
+		elif _cust_hex is None and character in characters.revCustomChar:
+			# revCustomChar mapping exists but the hex is None (shouldn't happen)
+			print(f'ERROR! Unable to encode character {character}! We found no match in logic.')
+			continue
 		# Apply trailing kinsoku flags to the high byte of the 2-byte code
 		# emitted for this character (no-op for 1-byte ASCII output).
 		if mask and len(newBytestring) - prev_len >= 2:
