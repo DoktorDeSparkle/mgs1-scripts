@@ -175,7 +175,7 @@ def _encodeSubtitle(startFrame: int, duration: int, text: str) -> bytes:
     Encode one subtitle as bytes.
     Mirrors common/structs.subtitle.__bytes__ without the class import.
     """
-    encoded = RD.encodeJapaneseHex(text)[0]
+    encoded = RD.encodeJapaneseHex(text, bank=3)[0]
     raw     = struct.pack("III", startFrame, duration, 0) + encoded
     pad     = 4 - (len(raw) % 4)
     return raw + bytes(pad)

@@ -84,7 +84,7 @@ def injectSubtitles(originalBinary: bytes, newTexts: dict, frameLimit: int = 1, 
         duration = timings[1]
 
         subtitleBytes: bytes = struct.pack("III", start, duration, 0)
-        subtitleBytes += RD.encodeJapaneseHex(text)[0]
+        subtitleBytes += RD.encodeJapaneseHex(text, bank=3)[0]
         bufferNeeded = 4 - (len(subtitleBytes) % 4)
         for j in range(bufferNeeded):
             newBytes += b'\x00'

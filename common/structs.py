@@ -46,7 +46,10 @@ class subtitle:
         Return the new bytes.
         """
         subtitleBytes: bytes = struct.pack("III", self.startFrame, self.duration, 0)
-        subtitleBytes += RD.encodeJapaneseHex(self.text)[0]
+        # demo / vox / zmovie subtitles all render through font bank 3
+        # (font_set_font_addr(3, ...) in game/jimctrl.c and movie.c) so
+        # custom-char escapes must use the 0x9c / 0x9d prefix family.
+        subtitleBytes += RD.encodeJapaneseHex(self.text, bank=3)[0]
         bufferNeeded = 4 - (len(subtitleBytes) % 4)
         subtitleBytes += bytes(bufferNeeded)
         

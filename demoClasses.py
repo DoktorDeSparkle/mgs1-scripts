@@ -213,7 +213,7 @@ class dialogueLine():
         The caller (captionChunk.toBytes) is responsible for prepending the length.
         Layout: startFrame(4 LE) + displayFrames(4 LE) + buffer(4) + encoded_text + padding
         """
-        textBytes = RD.encodeJapaneseHex(self.text)[0]
+        textBytes = RD.encodeJapaneseHex(self.text, bank=3)[0]
         subBytes = struct.pack("<I", self.startFrame)
         subBytes += struct.pack("<I", self.displayFrames)
         subBytes += self.buffer  # 4 bytes — preserved from parse (or zeros for new entries)

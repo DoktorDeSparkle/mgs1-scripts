@@ -167,13 +167,17 @@ def translateJapaneseHex(bytestring: bytes, callDict: dict[str, str] = None ) ->
 	while i < len(bytestring) - 1:
 		b0 = bytestring[i]
 		# Custom-char escape: 2 bytes, second is index into per-call dict.
-		# Flag bits are not meaningful here (these aren't font glyph codes).
-		if b0 in (0x96, 0x97, 0x98, 0x9c):
+		# Bank 1 prefixes (0x96/0x97/0x98) and bank 3 prefixes (0x9c/0x9d)
+		# both decode to the same Python slot space here; the bank only
+		# matters at re-encode time (see encodeJapaneseHex and FontBanks.md).
+		if b0 in (0x96, 0x97, 0x98, 0x9c, 0x9d):
 			customCharNum = int(bytestring[i + 1])
 			if b0 == 0x97:
 				customCharNum += 255
 			elif b0 == 0x98:
 				customCharNum += 510
+			elif b0 == 0x9d:
+				customCharNum += 255
 			result = callDict.get(customCharNum) if callDict else None
 			if result is not None:
 				messageString += result
@@ -225,7 +229,16 @@ def translateJapaneseHex(bytestring: bytes, callDict: dict[str, str] = None ) ->
 
 	return messageString
 
-def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOverrides: dict = None) -> tuple[bytes, str]: # Needs fixins, maybe move to separate file?
+# Per-bank custom-char escape prefixes. The prefix byte selects which
+# of the engine's font-bank pointers a 2-byte custom-char code reads
+# through, NOT a flag variant of the same bank. See FontBanks.md.
+CUSTOM_CHAR_PREFIXES = {
+	1: (b'\x96', b'\x97', b'\x98'),  # RADIO.DAT
+	3: (b'\x9c', b'\x9d'),           # DEMO.DAT / VOX.DAT / ZMOVIE.STR
+}
+
+
+def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOverrides: dict = None, bank: int = 1) -> tuple[bytes, str]: # Needs fixins, maybe move to separate file?
 	"""
 	WORK IN PROGRESS! Re-encodes japanese characters.
 
@@ -237,24 +250,38 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 	Kinsoku sentinels (‹BK› / ‹TK›) trailing a character set the
 	BACK_KINSOKU / TOP_KINSOKU bits on the high byte of that character's
 	2-byte code so round-tripped flags survive re-encoding.
+
+	bank selects which font-bank's custom-char prefix family to emit:
+	  bank=1 -> 0x96 / 0x97 / 0x98  (RADIO.DAT, default)
+	  bank=3 -> 0x9c / 0x9d         (DEMO.DAT, VOX.DAT, ZMOVIE.STR)
+	These are NOT flag variants of each other — they index different
+	per-call tile blobs installed by different subsystems at runtime.
+	Full writeup: FontBanks.md (project root).
 	"""
 	overrides = tblOverrides if tblOverrides is not None else tblEncoderOverrides
 	unknownChars = True # For now we still dont know some characters
+	prefixes = CUSTOM_CHAR_PREFIXES.get(bank)
+	if prefixes is None:
+		raise ValueError(f'encodeJapaneseHex: unknown bank {bank!r}; supported: {sorted(CUSTOM_CHAR_PREFIXES)}')
 
 	newBytestring = b''
-	def addCharToDict(customHex: str):
-		if debug:
-			print(f'Character {character} was not found in custom call dict. Adding...')
-		index = int(len(callDict) / 72)
-		if index > 510:
-			index -= 510
-			newBytestring += b'\x98'
-		elif index > 255:
-			index -= 255
-			newBytestring += b'\x97'
-		else:
-			newBytestring += b'\x96'
-		callDict += customHex
+
+	def _emit_slot(index: int) -> bytes:
+		"""Return the 2-byte escape for per-call dict slot `index` (1-based).
+
+		Picks the prefix byte from the bank's prefix list based on which
+		256-slot range `index` falls into, then emits (prefix, sub_index).
+		"""
+		# Slot 1..255 -> prefixes[0], 256..510 -> prefixes[1], 511..765 -> prefixes[2]
+		for n, prefix in enumerate(prefixes):
+			lo = 1 + n * 255
+			hi = lo + 254
+			if lo <= index <= hi:
+				return prefix + (index - lo + 1).to_bytes(1, 'big')
+		raise ValueError(
+			f'encodeJapaneseHex: slot index {index} exceeds bank {bank} capacity '
+			f'({len(prefixes) * 255} slots)'
+		)
 
 	# THIS IS ONLY UNTIL WE IDENTIFY ALL MISSING CHARACTERS!
 	if unknownChars:
@@ -295,23 +322,10 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 			newBytestring += character.encode('ascii')
 		elif _in_existing_slot:
 			# Char already has a tile in this call's custom-char dict —
-			# emit the escape pointing at that slot. The escape prefix
-			# selects a 256-entry block:
-			#   0x96 N -> dict index N         (N = 1..255)
-			#   0x97 N -> dict index N + 255   (N = 1..255; 0x97 00 is the
-			#                                   alias of 0x96 FF and is
-			#                                   reserved/unused)
-			#   0x98 N -> dict index N + 510   (likewise)
+			# emit the escape pointing at that slot. _emit_slot picks the
+			# right prefix byte for the active bank.
 			index = int(callDict.find(_cust_hex) / 72) + 1
-			if index > 510:
-				index -= 510
-				newBytestring += b'\x98'
-			elif index > 255:
-				index -= 255
-				newBytestring += b'\x97'
-			else:
-				newBytestring += b'\x96'
-			newBytestring += index.to_bytes()
+			newBytestring += _emit_slot(index)
 		elif character in characters.revRadio:
 			newBytestring += b'\x80' + bytes.fromhex(characters.revRadio.get(character))
 		elif character in characters.revHiragana:
@@ -333,25 +347,11 @@ def encodeJapaneseHex(dialogue: str, callDict="", useDoubleLength=False, tblOver
 		elif _cust_hex is not None:
 			# Char has a tile but it isn't in this call's dict yet —
 			# allocate a new slot at the end.
-			if not callDict:
-				if debug:
-					print(f'Character {character} was not found in custom call dict. Adding...')
-				newBytestring += bytes.fromhex('9601')
-				callDict = _cust_hex
-			else:
-				if debug:
-					print(f'Character {character} was not found in custom call dict. Adding...')
-				index = int(len(callDict) / 72) + 1
-				if index > 510:
-					index -= 510
-					newBytestring += b'\x98'
-				elif index > 255:
-					index -= 255
-					newBytestring += b'\x97'
-				else:
-					newBytestring += b'\x96'
-				callDict += _cust_hex
-				newBytestring += index.to_bytes()
+			if debug:
+				print(f'Character {character} was not found in custom call dict. Adding...')
+			index = int(len(callDict) / 72) + 1
+			newBytestring += _emit_slot(index)
+			callDict += _cust_hex
 		elif _cust_hex is None and character in characters.revCustomChar:
 			# revCustomChar mapping exists but the hex is None (shouldn't happen)
 			print(f'ERROR! Unable to encode character {character}! We found no match in logic.')
