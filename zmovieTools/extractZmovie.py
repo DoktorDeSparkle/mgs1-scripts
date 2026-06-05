@@ -108,6 +108,21 @@ def _parseTextBlock(data: bytes) -> tuple:
     return texts, coords
 
 
+def _hasSubtitleBlock(entryData: bytes) -> bool:
+    """
+    Some entries (notably d2 `zmovie-03`, the long ending FMV) don't have a
+    subtitle metadata block at byte 0x28 — block 0 is a normal CD-XA stream
+    sector. Parsing those as subtitle blocks yields garbage. The mini-header
+    size constant at byte 0x32 should always be 0x0010 for a real subtitle
+    block, and subtitle_length at 0x34 should be well under one block.
+    """
+    if len(entryData) < 0x38:
+        return False
+    mini_header_size = struct.unpack('<H', entryData[0x32:0x34])[0]
+    sub_len          = struct.unpack('<I', entryData[0x34:0x38])[0]
+    return mini_header_size == 0x0010 and sub_len < 0x800
+
+
 def _extractEntrySubtitles(entryData: bytes) -> dict:
     """
     Find all subtitle blocks in one zmovie entry and return a merged dict:
@@ -116,7 +131,12 @@ def _extractEntrySubtitles(entryData: bytes) -> dict:
     Handles multi-chunk entries (e.g. zmovie-02) where graphics data
     overflows into the next block. chunk_count is at offset 0x0E of
     each entry's first block.
+
+    Entries without a subtitle block (see _hasSubtitleBlock) return {}.
     """
+    if not _hasSubtitleBlock(entryData):
+        return {}
+
     # Detect multi-chunk entries from the header
     chunk_count = struct.unpack('<H', entryData[0x0E:0x10])[0]
 

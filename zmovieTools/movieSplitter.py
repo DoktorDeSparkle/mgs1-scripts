@@ -80,12 +80,21 @@ def main(args=None):
             DTE.filename = fname
             movieData = movieTest.read()
 
+        basename = fname.split('.')[0]
+
+        # Skip entries whose block 0 isn't a subtitle metadata block
+        # (e.g. d2 zmovie-03, where block 0 is XA stream data).
+        mini_hdr = struct.unpack('<H', movieData[0x32:0x34])[0]
+        sub_len  = struct.unpack('<I', movieData[0x34:0x38])[0]
+        if mini_hdr != 0x0010 or sub_len >= 0x800:
+            print(f'{basename}: no subtitle block (mini_hdr=0x{mini_hdr:04X}), skipping')
+            continue
+
         subset = getSubtitleSubset(movieData)
         textHexes, graphicsBytes, coords = DTE.getTextHexes(subset)
         texts = DTE.getDialogue(textHexes, graphicsBytes)
         timings = coords
 
-        basename = fname.split('.')[0]
         zMovieScript[basename] = [DTE.textToDict(texts), DTE.textToDict(timings)]
         DTE.writeTextToFile(f'{outputDir}/texts/{basename}.txt', texts)
 
