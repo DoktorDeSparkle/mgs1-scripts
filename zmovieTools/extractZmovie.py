@@ -211,30 +211,102 @@ def _buildSubBlock(subtitlesJson: dict) -> bytes:
     return block
 
 
+_BLOCK0_DATA_START = 0x38
+_BLOCK0_DATA_END   = 0x808
+_BLOCK1_DATA_START = 0x28
+_BLOCK1_DATA_END   = 0x808
+_BLOCK0_CAPACITY   = _BLOCK0_DATA_END - _BLOCK0_DATA_START  # 0x7D0 = 2000 bytes
+_BLOCK1_CAPACITY   = _BLOCK1_DATA_END - _BLOCK1_DATA_START  # 0x7E0 = 2016 bytes
+
+
+def _extractOrigGraphics(origSlice: bytes) -> bytes:
+    """
+    Return the original graphics-data bytes (custom font tiles) for one zmovie
+    entry. These live in the same buffer as the subtitle table, starting
+    immediately after the last subtitle's text+padding. Mirrors the parse logic
+    in _parseTextBlock.
+    """
+    combined = origSlice[_BLOCK0_DATA_START:_BLOCK0_DATA_END]
+    if (len(origSlice) >= ZMOVIE_BLOCK + _BLOCK1_DATA_END
+            and struct.unpack('<H', origSlice[0x0E:0x10])[0] >= 2):
+        combined += origSlice[ZMOVIE_BLOCK + _BLOCK1_DATA_START:
+                              ZMOVIE_BLOCK + _BLOCK1_DATA_END]
+
+    offset = 0
+    while offset < len(combined):
+        if combined[offset] == 0x00:
+            # Final subtitle entry has a null length prefix; text runs until
+            # the next null byte (after the 16-byte header).
+            lastEnd = combined.find(b'\x00', offset + 16)
+            if lastEnd < 0:
+                return b''
+            raw      = combined[offset:lastEnd]
+            pad      = 4 - (len(raw) % 4)
+            graphics = combined[offset + len(raw) + pad:]
+            return graphics.rstrip(b'\x00')
+        textSize = struct.unpack('<H', combined[offset:offset + 2])[0]
+        if textSize == 0:
+            return combined[offset:].rstrip(b'\x00')
+        offset += textSize
+    return b''
+
+
 def _rebuildEntry(origSlice: bytes, subtitlesJson: dict) -> bytes:
     """
     Reconstruct one zmovie entry binary with patched subtitle data.
 
-    Layout (from zMovieTextInjector.py):
-      origSlice[:0x38]     — static header (unchanged)
-      genSubBlock(...)     — new subtitle bytes
-      padding to 0x800     — zero-fill
-      origSlice[0x800:]    — original video/audio data (unchanged)
+    Layout (per Goblin's groundwork):
+      block 0 [0x00:0x38]:    XA/header (preserved)
+      block 0 [0x38:0x808]:   subtitle table + graphics data
+      block 0 [0x808:0x920]:  tail (preserved)
+      block 1 [0x00:0x28]:    XA subheader (preserved if present)
+      block 1 [0x28:0x808]:   subtitle/graphics continuation when needed
+      block 1 [0x808:0x920]:  tail (preserved)
+      block 2+:               video/audio (preserved)
+
+    The combined payload (new subtitle table + original graphics data) is
+    threaded across block 0 [0x38:0x808] and, if it does not fit, spills into
+    block 1 [0x28:0x808]. The chunk_count header at byte 0x0E is NOT modified —
+    its semantics vary across entries (e.g. d2 ending FMVs have chunk_count=9
+    for unrelated XA stream reasons).
     """
     sub_block = _buildSubBlock(subtitlesJson)
-    header    = origSlice[:0x38]
-    subtitle_section = header + sub_block
+    graphics  = _extractOrigGraphics(origSlice)
+    payload   = sub_block + graphics
 
-    if len(subtitle_section) > SUBTITLE_PATCH_LIMIT:
+    has_block1 = len(origSlice) >= 2 * ZMOVIE_BLOCK
+    capacity   = _BLOCK0_CAPACITY + (_BLOCK1_CAPACITY if has_block1 else 0)
+
+    if len(payload) > capacity:
         raise ValueError(
-            f"Subtitle block is {len(subtitle_section)} bytes — exceeds "
-            f"0x{SUBTITLE_PATCH_LIMIT:X} limit by "
-            f"{len(subtitle_section) - SUBTITLE_PATCH_LIMIT} bytes. "
+            f"Subtitle block + graphics is {len(payload)} bytes — exceeds "
+            f"available capacity ({capacity} bytes across "
+            f"{'two blocks' if has_block1 else 'block 0 only'}). "
             "Shorten subtitle text."
         )
 
-    subtitle_section += bytes(SUBTITLE_PATCH_LIMIT - len(subtitle_section))
-    return subtitle_section + origSlice[SUBTITLE_PATCH_LIMIT:]
+    new_block0 = bytearray(origSlice[:ZMOVIE_BLOCK])
+    block0_payload = payload[:_BLOCK0_CAPACITY]
+    new_block0[_BLOCK0_DATA_START:_BLOCK0_DATA_START + len(block0_payload)] = block0_payload
+    # Zero remainder of block 0 subtitle/graphics zone so any reader scanning
+    # past the payload sees clean zeros (not stale data from the prior layout).
+    zero_from = _BLOCK0_DATA_START + len(block0_payload)
+    new_block0[zero_from:_BLOCK0_DATA_END] = bytes(_BLOCK0_DATA_END - zero_from)
+
+    if not has_block1:
+        return bytes(new_block0) + origSlice[ZMOVIE_BLOCK:]
+
+    new_block1 = bytearray(origSlice[ZMOVIE_BLOCK:2 * ZMOVIE_BLOCK])
+    block1_payload = payload[_BLOCK0_CAPACITY:]
+    new_block1[_BLOCK1_DATA_START:_BLOCK1_DATA_START + len(block1_payload)] = block1_payload
+    # Zero remainder of block 1 subtitle/graphics zone (this is the fix for
+    # the silent-corruption bug: previously block 1 [0x28:0x808] was preserved
+    # verbatim, leaking subtitle/graphics bytes from the original layout that
+    # no longer matched the new block 0 table).
+    zero_from = _BLOCK1_DATA_START + len(block1_payload)
+    new_block1[zero_from:_BLOCK1_DATA_END] = bytes(_BLOCK1_DATA_END - zero_from)
+
+    return bytes(new_block0) + bytes(new_block1) + origSlice[2 * ZMOVIE_BLOCK:]
 
 
 def compileToFile(outputPath: str, originalData: bytes, dialogueJson: dict) -> None:
