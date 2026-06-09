@@ -60,14 +60,18 @@ if __name__ == "__main__":
     
     # If the first demo is a list, it's v1 and we convert to v2. 
     # Else if it's a dict, we convert back to v1.
-    if type(inputData.get("demo-01")) == list:
+    firstEntry = next(iter(inputData.values()))
+    if isinstance(firstEntry, list):
         # Convert to new format
-        print(f"Type is {type(inputData.get("demo-01"))}, convert to v2...")
+        print(f"Type is {type(firstEntry)}, convert to v2...")
         outputData = convertToNew(inputData)
-    elif type(inputData["demo-01"]) == dict:
-        print(f"Type is {type(inputData.get("demo-01"))}, convert to v1...")
+    elif isinstance(firstEntry, dict):
+        print(f"Type is {type(firstEntry)}, convert to v1...")
         # Convert to old format
         outputData = convertToOld(inputData)
+    else:
+        print(f"Error! Unknown file schema. Type is {type(firstEntry)}!")
+        exit(2)
     
     # Write the file back to the same filename.
     with open(outputFile, 'w') as f:
