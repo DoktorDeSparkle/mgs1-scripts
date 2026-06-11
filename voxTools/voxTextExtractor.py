@@ -114,28 +114,29 @@ def getTextHexes(textToAnalyze: bytes) -> tuple[list, bytes, list]:
 
 def getTextAreaOffsets(voxData: bytes) -> list:
     """
-    This is awful, but it should to a certain degree find vox offset spots.
-    If there's a better way to do this lmk, but it's not too inefficient. 
+    Walk the chunk structure (1 type byte + 2-byte LE length, as in
+    demoClasses.parseDemoData) and return the offset of every caption
+    chunk (type 0x03).
+
+    Replaces the old regex + tail-byte heuristic, which required the
+    audio chunk following a caption block to be full-size (01 04 20 00)
+    and silently missed captions when the remaining audio was shorter
+    (e.g. vox-0054, vox-0208, and ~48 other jpn-d1 bins).
     """
-    patternA = b"\x03..." + b"...." +  b"...." +  b"...." + bytes(4) + bytes.fromhex("FF FF FF 7F 10 00") # Figured out the universal pattern. 
-    # 03 ?? ?? ?? ?? ?? ?? 00 ?? ?? ?? ?? 10 00 14 00 >> For IMHEX usage
-    # patternB = bytes.fromhex("FF FF FF 7F 10 00") 
-    # This is actually the indication a dialogue area runs to end of vox (until frame 0x7FFFFF)
+    offsets = []
+    offset = 0
+    while offset + 3 <= len(voxData):
+        chunkType = voxData[offset]
+        if chunkType == 0xf0: # End-of-file marker
+            break
+        length = struct.unpack("<H", voxData[offset + 1:offset + 3])[0]
+        if length == 0: # Malformed chunk, don't loop forever
+            break
+        if chunkType == 0x03:
+            offsets.append(offset)
+        offset += length
 
-    matches = re.finditer(patternA, voxData, re.DOTALL)
-    offsets = [match.start() for match in matches]
-
-    finalMatches = []
-    for offset in offsets:
-        # Extract size of the area
-        length = 12 + struct.unpack('<H', voxData[offset + 13: offset + 15])[0]
-        
-        # This is just an alignment check. Last 4 should always be this constant.
-        bytesToCheck = voxData[offset + length : offset + 4 + length] # 4 bytes at head are included.
-        if bytesToCheck == bytes.fromhex("01 04 20 00"):
-            finalMatches.append(offset + 12)
-
-    return finalMatches
+    return offsets
 
 def getTextAreaBytes(offset, voxData):
     """

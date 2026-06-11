@@ -176,6 +176,9 @@ if __name__ == "__main__":
         subtitles = assembleTitles(voxDict, voxTimings)
 
         offsets = DTE.getTextAreaOffsets(origvoxData)
+        if not offsets:
+            print(f'{basename}: No caption chunks found! Skipping...')
+            continue
         # nextStart = 1 # index of subtitle to encode. No longer needed.
         newvoxData = origvoxData[0 : offsets[0]] # UNTIL the header
         
@@ -189,11 +192,18 @@ if __name__ == "__main__":
             for sub in subtitles:
                 if frameStart <= sub.startFrame < frameLimit:
                     subsForSection.append(sub)
-            newSubBlock = genSubBlock(subsForSection) # TODO: CODE THIS DEF
-            newLength = len(oldHeader) + len(newSubBlock)
+            # Original data is frame-ordered; JSON key order isn't guaranteed (e.g. vox-0208).
+            subsForSection.sort(key=lambda s: s.startFrame)
+            if not subsForSection:
+                # No replacement lines fall in this section; keep it verbatim.
+                print(f'{basename}: no lines for section at {offsets[Num]} (frames {frameStart}-{frameLimit}), keeping original.')
+                newvoxData += origvoxData[offsets[Num]: offsets[Num] + oldLength]
+            else:
+                newSubBlock = genSubBlock(subsForSection)
+                newLength = len(oldHeader) + len(newSubBlock)
 
-            newHeader = bytes.fromhex("03") + struct.pack("H", newLength) + bytes(1) + struct.pack("II", frameStart, frameLimit) + oldHeader[12:16] + struct.pack("I", len(oldHeader) + len(newSubBlock) - 4) + oldHeader[20:]
-            newvoxData += newHeader + newSubBlock
+                newHeader = bytes.fromhex("03") + struct.pack("H", newLength) + bytes(1) + struct.pack("II", frameStart, frameLimit) + oldHeader[12:16] + struct.pack("I", len(oldHeader) + len(newSubBlock) - 4) + oldHeader[20:]
+                newvoxData += newHeader + newSubBlock
             # Add the rest of the data from this to the next offset OR until end of original vox. 
             if Num < len(offsets) - 1: # if it is NOT the last... 
                 newvoxData += origvoxData[offsets[Num] + oldLength: offsets[Num + 1]]
