@@ -1,0 +1,6 @@
+# Minimal dependencies for the Undub Studio GUI and its pipelines.
+# (The full toolkit requirements live in ../requirements.txt — numpy,
+#  matplotlib and ffmpeg-python are only needed for creditsHacking/audioTools.)
+
+progressbar2        # RadioDatTools / xmlModifierTools progress display
+Pillow              # game-font parsing for the codec preview (optional but recommended)

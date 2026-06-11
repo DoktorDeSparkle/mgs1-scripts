@@ -7,3 +7,9 @@ mgs1-undub-docs/.obsidian
 mgs1-undub-docs/.trash
 __pycache__/
 
+
+# GUI runtime state
+gui/.last-project
+
+# GUI launcher venv
+.venv/

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MGS1 Undub Studio</title>
+<link rel="stylesheet" href="/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230a0e0a'/><rect x='2' y='5' width='12' height='6' fill='none' stroke='%2386c06c'/><rect x='4' y='7' width='2' height='2' fill='%2386c06c'/><rect x='10' y='7' width='2' height='2' fill='%2386c06c'/></svg>">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <span class="brand-mark">▰▰</span>
+      <span class="brand-name">UNDUB&nbsp;STUDIO</span>
+      <span class="brand-sub">MGS1 translation toolkit</span>
+    </div>
+    <div id="top-status">
+      <span id="job-indicator" class="hidden"><span class="blink">●</span> <span id="job-indicator-name"></span></span>
+      <span id="project-name" class="muted"></span>
+    </div>
+  </header>
+
+  <div id="layout">
+    <nav id="sidenav">
+      <button data-view="project"><span class="nav-ico">⌂</span>Project<span class="badge" id="badge-project"></span></button>
+      <div class="nav-sep">EDITORS</div>
+      <button data-view="radio"><span class="nav-ico">📻</span>Radio<span class="badge" id="badge-radio"></span></button>
+      <button data-view="demo"><span class="nav-ico">🎬</span>Demo<span class="badge" id="badge-demo"></span></button>
+      <button data-view="vox"><span class="nav-ico">🔊</span>Vox<span class="badge" id="badge-vox"></span></button>
+      <button data-view="zmovie"><span class="nav-ico">📼</span>ZMovie<span class="badge" id="badge-zmovie"></span></button>
+      <div class="nav-sep">TOOLS</div>
+      <button data-view="charset"><span class="nav-ico">字</span>Charset</button>
+      <button data-view="build"><span class="nav-ico">⚙</span>Build</button>
+      <div class="nav-bottom">
+        <div id="save-state" class="muted"></div>
+      </div>
+    </nav>
+
+    <main id="view"></main>
+  </div>
+
+  <div id="toast-area"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

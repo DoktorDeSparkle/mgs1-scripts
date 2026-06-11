@@ -12,6 +12,21 @@ You can find additional details on my blog at ![mgs-undubbed.io](https://blog.mg
 
 Most of the tooling is done. There are some finishing touches for demo and zmovie still before the code is complete. Then it's onto translation. 
 
+# GUI
+
+There is now a graphical front-end for the whole workflow in [gui/](gui/) — extraction, side-by-side dialogue/timing editing with byte-budget validation, a codec-window preview rendered with the real in-game font from STAGE.DIR, machine translation / CSV round-trips, and one-click recompilation (including STAGE.DIR offset fixes).
+
+Easiest start (sets up a virtualenv and dependencies automatically on first run):
+
+```
+./launch.sh        # Linux / macOS
+launch.bat         # Windows (double-click works too)
+```
+
+Or run it directly against your own environment with `python3 gui/app.py`.
+
+See [gui/README.md](gui/README.md) for details.
+
 # Usage
 
 Most of the scripts will have command-line based arguments. I do have some directories still hard coded. 
